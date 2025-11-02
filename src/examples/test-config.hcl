@@ -6,8 +6,8 @@ host "test" {
 }
 
 plugin "apt" {
-  source = "github.com/example/apt-plugin"
-  version = "v1.2.0"
+  source = "github.com/danielvollbro/ecac-plugin-apt"
+  version = "v0.0.2"
 }
 
 task "web" {

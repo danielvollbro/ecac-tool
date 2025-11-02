@@ -5,7 +5,9 @@ import (
 	hclmodels "ecac/internal/models/hcl-models"
 	"fmt"
 
-	"github.com/hashicorp/hcl/v2/hclsimple"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/hashicorp/hcl/v2/gohcl"
+	"github.com/hashicorp/hcl/v2/hclparse"
 )
 
 type Service struct {
@@ -18,35 +20,38 @@ func NewService(storage storage.Service) *Service {
 	}
 }
 
-func (s *Service) Load(path string) (*hclmodels.Root, error) {
+func (s *Service) ParseConfig(path string) (*hclmodels.RootRaw, error) {
 	exists := s.Storage.FileExists(path)
 	if !exists {
 		return nil, fmt.Errorf("%s: file doesn't exists", path)
 	}
 
+	parser := hclparse.NewParser()
+	file, diags := parser.ParseHCLFile(path)
+	if diags.HasErrors() {
+		return nil, diags
+	}
+
 	var rootRaw hclmodels.RootRaw
-	err := hclsimple.DecodeFile(path, nil, &rootRaw)
-	if err != nil {
-		return nil, err
+	ctx := &hcl.EvalContext{}
+	diags = gohcl.DecodeBody(file.Body, ctx, &rootRaw)
+	if diags.HasErrors() {
+		return nil, diags
 	}
 
-	config := &hclmodels.Root{
-		Hosts:   make(map[string]*hclmodels.Host),
-		Plugins: make(map[string]*hclmodels.Plugin),
-		Tasks:   make(map[string]*hclmodels.Task),
-	}
-
-	for _, h := range rootRaw.Hosts {
-		config.Hosts[h.Name] = h
-	}
-
-	for _, p := range rootRaw.Plugins {
-		config.Plugins[p.Name] = p
+	schema := &hcl.BodySchema{
+		Blocks: []hcl.BlockHeaderSchema{
+			{Type: "config"},
+		},
 	}
 
 	for _, t := range rootRaw.Tasks {
-		config.Tasks[t.Name] = t
+		content, _ := t.Body.Content(schema)
+		if len(content.Blocks) == 0 {
+			return nil, fmt.Errorf("%s: task %q missing config block", path, t.Name)
+		}
+		t.Config = content.Blocks[0].Body
 	}
 
-	return config, nil
+	return &rootRaw, nil
 }
